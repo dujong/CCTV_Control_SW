@@ -3,6 +3,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import time
 import pymysql
+from sqlalchemy import create_engine
 import pandas as pd
 import tensorflow as tf
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -18,6 +19,8 @@ from PIL import Image
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from tensorflow.compat.v1 import ConfigProto
+from tensorflow.compat.v1 import InteractiveSession
 # deep sort imports
 from deep_sort import preprocessing, nn_matching
 from deep_sort.detection import Detection
@@ -37,6 +40,7 @@ flags.DEFINE_float('score', 0.50, 'score threshold')
 flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
+flags.DEFINE_integer('area', None)
 
 def main(_argv):
     # Definition of the parameters
@@ -53,9 +57,9 @@ def main(_argv):
     tracker = Tracker(metric)
 
     # load configuration for object detector
-    config = tf.ConfigProto()
+    config = ConfigProto()
     config.gpu_options.allow_growth = True
-    session = tf.InteractiveSession(config=config)
+    session = InteractiveSession(config=config)
     STRIDES, ANCHORS, NUM_CLASS, XYSCALE = utils.load_config(FLAGS)
     input_size = FLAGS.size
     video_path = FLAGS.video
@@ -82,6 +86,7 @@ def main(_argv):
     out = None
 
     # get video ready to save locally if flag is set
+    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ FLAGS 쓰는 방법 참조 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     if FLAGS.output:
         # by default VideoCapture returns float instead of int
         width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -157,10 +162,10 @@ def main(_argv):
         class_names = utils.read_class_names(cfg.YOLO.CLASSES)
 
         # by default allow all classes in .names file
-        allowed_classes = list(class_names.values())
+        # allowed_classes = list(class_names.values())
         
         # custom allowed classes (uncomment line below to customize tracker for only people)
-        #allowed_classes = ['person']
+        allowed_classes = ['person']
 
         # loop through objects and use class index to get class name, allow only classes in allowed_classes list
         names = []
@@ -181,6 +186,7 @@ def main(_argv):
         bboxes = np.delete(bboxes, deleted_indx, axis=0)
         scores = np.delete(scores, deleted_indx, axis=0)
 
+        
         # encode yolo detections and feed to tracker
         features = encoder(frame, bboxes)
         detections = [Detection(bbox, score, class_name, feature) for bbox, score, class_name, feature in zip(bboxes, scores, names, features)]
@@ -200,8 +206,16 @@ def main(_argv):
         tracker.predict()
         tracker.update(detections)
         
-        DB_data_list = pd.DataFrame(columns=['id', 'class', 'left', 'top', 'right', 'bottom', 'R', 'G', 'B'])
+        # A_Sector select문으로 DB 에 있는 값을 가져온다 -> person_id 값을 비교한뒤에 없는 값 추출해서 넣기위해서
+        CCTV_DB = pymysql.connect( user='root', passwd='313631', host='192.168.0.100', db='cctv_sw', charset='utf8')
+        cursor = CCTV_DB.cursor(pymysql.cursors.DictCursor)
+        sql = "SELECT * FROM 'a_sector';"
+        cursor.execute(sql)
+        A_Sector_Data = cursor.fetchall()
+
+        DB_data_list = pd.DataFrame(columns=['person_id', 'class_id', 'left', 'top', 'right', 'bottom', 'shirt_R', 'shirt_G', 'shirt_B', 'pants_R', 'pants_G', 'pants_B', 'shoes_R', 'shoes_G', 'shoes_B'])
         # update tracks
+        cnt = 0
         for track in tracker.tracks:
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue 
@@ -215,32 +229,52 @@ def main(_argv):
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
             cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
-            # @@@@@@@@@@@@@@@@@@@@@@DB에 track_id, class, boxs 넣기
+            # @@@@@@@@@@@@@@@@@@@@@@ DB에 track_id, class, boxs DB에 넣기
+            
             new_data = {
-                'id' : str(track.track_id),
-                'class' : class_name,
+                'person_id' : str(track.track_id),
+                'class_id' : str(class_name),
                 'left' : bbox[0],
                 'top' : bbox[1],
                 'right' : bbox[2],
                 'bottom' : bbox[3],
-                'R' : 255,
-                'G' : 255,
-                'B' : 255
-            }
-            DB_data_list.append(new_data)
+                'shirt_R' : 255.0,
+                'shirt_G' : 255.0,
+                'shirt_B' : 255.0,
+                'pants_R' : 255.0,
+                'pants_G' : 255.0,
+                'pants_B' : 255.0,
+                'shoes_R' : 255.0,
+                'shoes_G' : 255.0,
+                'shoes_B' : 255.0,
 
+            }
+
+            if new_data['person_id'] not in A_Sector_Data['person_id']:
+                DB_data_list.loc[cnt] = new_data
+                cnt +=1
 
         # if enable info flag then print details about each track
             if FLAGS.info:
                 print("Tracker ID: {}, Class: {},  BBox Coords (xmin, ymin, xmax, ymax): {}".format(str(track.track_id), class_name, (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))))
+        
+        # @@@ DB connect Data input
+        # A_Sector
+        engine = create_engine("mysql+pymysql://root:"+"313631"+"@192.168.0.100/cctv_sw", encoding='utf-8')
+        conn = engine.connect()
+        if len(DB_data_list) != 0:
+            # select로 person_id를 비교 후 DB에 값 input
+            DB_data_list.to_sql(name='a_sector', con=engine, if_exists='append', index=False)
 
+        # 임계지역
+        engine = create_engine("mysql+pymysql://root:"+"313631"+"@192.168.0.100/cctv_sw", encoding='utf-8')
+        conn = engine.connect()
+        if len(DB_data_list) != 0:
+            DB_data_list.to_sql(name='a_sector', con=engine, if_exists='append', index=False)
 
-        # @@@ DB connect
-        db = pymysql.connect( user='user_name', passwd='pass_word', host='db-host-url', db='db_name', charset='utf8' )
-        cursor = db.cursor(pymysql.cursors.DictCursor)
-        insert_sql = "INSERT INTO 'TALBE_명' VALUES(%s, %s, %d, %d, %d, %d, %d , %d, %d)"
-        cursor.executemany(insert_sql, DB_data_list)
-        db.commit()
+        # B_Sector
+
+        
 
         # calculate frames per second of running detections
         fps = 1.0 / (time.time() - start_time)
