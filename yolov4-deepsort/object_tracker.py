@@ -40,7 +40,7 @@ flags.DEFINE_float('score', 0.50, 'score threshold')
 flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
-flags.DEFINE_integer('area', None)
+flags.DEFINE_integer('area', None, 'sector number')
 
 def main(_argv):
     # Definition of the parameters
@@ -86,7 +86,6 @@ def main(_argv):
     out = None
 
     # get video ready to save locally if flag is set
-    # @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ FLAGS 쓰는 방법 참조 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     if FLAGS.output:
         # by default VideoCapture returns float instead of int
         width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -96,6 +95,20 @@ def main(_argv):
         out = cv2.VideoWriter(FLAGS.output, codec, fps, (width, height))
 
     frame_num = 0
+
+    user_data = dict()
+    A_Sector_Data = None
+
+    if FLAGS.area == 1:
+        # 임계지역!!
+        # A_Sector select문으로 DB 에 있는 값을 가져온다 -> person_id 값을 비교한뒤에 없는 값 추출해서 넣기위해서
+        CCTV_DB = pymysql.connect( user='root', passwd='313631', host='175.208.63.163', db='cctv_sw', charset='utf8')
+        cursor = CCTV_DB.cursor(pymysql.cursors.DictCursor)
+        sql = "SELECT * FROM a_sector;"
+        cursor.execute(sql)
+        A_Sector_Data = pd.DataFrame(cursor.fetchall())
+
+
     # while video is running
     while True:
         return_value, frame = vid.read()
@@ -206,14 +219,6 @@ def main(_argv):
         tracker.predict()
         tracker.update(detections)
         
-        # A_Sector select문으로 DB 에 있는 값을 가져온다 -> person_id 값을 비교한뒤에 없는 값 추출해서 넣기위해서
-        CCTV_DB = pymysql.connect( user='root', passwd='313631', host='192.168.0.100', db='cctv_sw', charset='utf8')
-        cursor = CCTV_DB.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT * FROM 'a_sector';"
-        cursor.execute(sql)
-        A_Sector_Data = cursor.fetchall()
-
-        DB_data_list = pd.DataFrame(columns=['person_id', 'class_id', 'left', 'top', 'right', 'bottom', 'shirt_R', 'shirt_G', 'shirt_B', 'pants_R', 'pants_G', 'pants_B', 'shoes_R', 'shoes_G', 'shoes_B'])
         # update tracks
         cnt = 0
         for track in tracker.tracks:
@@ -222,6 +227,17 @@ def main(_argv):
             bbox = track.to_tlbr()
             class_name = track.get_class()
             
+            # bbox로 color 추출 하기!!!
+
+            if FLAGS.area == 1:
+                for i in A_Sector_Data.iterrows():
+                    i = list(i)[1]
+                    personId = i[0]
+                    i = i[1:]
+                    if (abs(i[0] - top[0]) < 10) and (abs(i[1] - top[1]) < 10) and (abs(i[2] - top[2]) < 10) and (abs(i[3] - bottom[0]) < 10) and (abs(i[4] - bottom[1]) < 10) and (abs(i[5] - bottom[2]) < 10):
+                        track.track_id = personId
+
+
         # draw bbox on screen
             color = colors[int(track.track_id) % len(colors)]
             color = [i * 255 for i in color]
@@ -229,52 +245,17 @@ def main(_argv):
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
             cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
-            # @@@@@@@@@@@@@@@@@@@@@@ DB에 track_id, class, boxs DB에 넣기
-            
-            new_data = {
-                'person_id' : str(track.track_id),
-                'class_id' : str(class_name),
-                'left' : bbox[0],
-                'top' : bbox[1],
-                'right' : bbox[2],
-                'bottom' : bbox[3],
-                'shirt_R' : 255.0,
-                'shirt_G' : 255.0,
-                'shirt_B' : 255.0,
-                'pants_R' : 255.0,
-                'pants_G' : 255.0,
-                'pants_B' : 255.0,
-                'shoes_R' : 255.0,
-                'shoes_G' : 255.0,
-                'shoes_B' : 255.0,
 
-            }
+            user_data[str(track.track_id)] = [0, 1, 2, 3, 4, 5]
 
-            if new_data['person_id'] not in A_Sector_Data['person_id']:
-                DB_data_list.loc[cnt] = new_data
-                cnt +=1
+            # if new_data['person_id'] not in A_Sector_Data['person_id']:
+            #     DB_data_list.loc[cnt] = new_data
+            #     cnt +=1
 
         # if enable info flag then print details about each track
             if FLAGS.info:
                 print("Tracker ID: {}, Class: {},  BBox Coords (xmin, ymin, xmax, ymax): {}".format(str(track.track_id), class_name, (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))))
-        
-        # @@@ DB connect Data input
-        # A_Sector
-        engine = create_engine("mysql+pymysql://root:"+"313631"+"@192.168.0.100/cctv_sw", encoding='utf-8')
-        conn = engine.connect()
-        if len(DB_data_list) != 0:
-            # select로 person_id를 비교 후 DB에 값 input
-            DB_data_list.to_sql(name='a_sector', con=engine, if_exists='append', index=False)
-
-        # 임계지역
-        engine = create_engine("mysql+pymysql://root:"+"313631"+"@192.168.0.100/cctv_sw", encoding='utf-8')
-        conn = engine.connect()
-        if len(DB_data_list) != 0:
-            DB_data_list.to_sql(name='a_sector', con=engine, if_exists='append', index=False)
-
-        # B_Sector
-
-        
+               
 
         # calculate frames per second of running detections
         fps = 1.0 / (time.time() - start_time)
@@ -290,6 +271,24 @@ def main(_argv):
             out.write(result)
         if cv2.waitKey(1) & 0xFF == ord('q'): break
     cv2.destroyAllWindows()
+
+    DB_data_list = pd.DataFrame.from_dict(user_data, orient='index', columns=['top_R', 'top_G', 'top_B', 'bottom_R', 'bottom_G', 'bottom_B'])
+    DB_data_list = DB_data_list.reset_index().rename(columns={"index": "person_id"})
+
+    if FLAGS.area == 0:
+        table_name = 'a_sector'
+    elif FLAGS.area == 1:
+        table_name = 'critical_section'
+    elif FLAGS.area == 2:
+        table_name = 'b_sector'
+
+    engine = create_engine("mysql+pymysql://root:"+"root"+"@175.208.63.163/cctv_sw", encoding='utf-8')
+    conn = engine.connect()
+    if len(DB_data_list) != 0:
+        # select로 person_id를 비교 후 DB에 값 input
+        DB_data_list.to_sql(name=table_name, con=engine, if_exists='replace', index=False)
+
+
 
 if __name__ == '__main__':
     try:
