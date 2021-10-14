@@ -1,3 +1,4 @@
+from operator import index
 import os
 # comment out below line to enable tensorflow logging outputs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -10,7 +11,7 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 from absl import app, flags, logging
-from absl.flags import FLAGS
+from absl.flags import FLAGS, Flag
 import core.utils as utils
 from core.yolov4 import filter_boxes
 from tensorflow.python.saved_model import tag_constants
@@ -26,6 +27,8 @@ from deep_sort import preprocessing, nn_matching
 from deep_sort.detection import Detection
 from deep_sort.tracker import Tracker
 from tools import generate_detections as gdet
+from sklearn.cluster import KMeans
+
 flags.DEFINE_string('framework', 'tf', '(tf, tflite, trt')
 flags.DEFINE_string('weights', './checkpoints/yolov4-416',
                     'path to weights file')
@@ -41,6 +44,55 @@ flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('count', False, 'count objects being tracked on screen')
 flags.DEFINE_integer('area', None, 'sector number')
+
+def centroid_histogram(clt):
+    # grab the number of different clusters and create a histogram
+    # based on the number of pixels assigned to each cluster
+    numLabels = np.arange(0, len(np.unique(clt.labels_)) + 1)
+    (hist, _) = np.histogram(clt.labels_, bins=numLabels)
+
+    # normalize the histogram, such that it sums to one
+    hist = hist.astype("float")
+    hist /= hist.sum()
+
+    # return the histogram
+    return hist
+
+def plot_colors(hist, centroids):
+    # initialize the bar chart representing the relative frequency
+    # of each of the colors
+    bar = np.zeros((50, 300, 3), dtype="uint8")
+    startX = 0
+
+    # loop over the percentage of each cluster and the color of
+    # each cluster
+    for (percent, color) in zip(hist, centroids):
+        # plot the relative percentage of each cluster
+        endX = startX + (percent * 300)
+        cv2.rectangle(bar, (int(startX), 0), (int(endX), 50),
+                      color.astype("uint8").tolist(), -1)
+        startX = endX
+
+    # return the bar chart
+    return bar, centroids
+
+
+
+#ln[3]
+def image_color_cluster(img_array, k = 2):
+    try:
+        image = img_array.copy()
+        image = image.reshape((image.shape[0] * image.shape[1], 3))
+
+        clt = KMeans(n_clusters = k)
+        clt.fit(image)
+
+        hist = centroid_histogram(clt)
+        _, centroids = plot_colors(hist, clt.cluster_centers_)
+
+        return centroids[1]
+    except ValueError:
+        return 0.
 
 def main(_argv):
     # Definition of the parameters
@@ -97,8 +149,6 @@ def main(_argv):
     frame_num = 0
 
     user_data = dict()
-    A_Sector_Data = None
-
     if FLAGS.area == 1:
         # 임계지역!!
         # A_Sector select문으로 DB 에 있는 값을 가져온다 -> person_id 값을 비교한뒤에 없는 값 추출해서 넣기위해서
@@ -108,6 +158,16 @@ def main(_argv):
         cursor.execute(sql)
         A_Sector_Data = pd.DataFrame(cursor.fetchall())
 
+    if FLAGS.area == 2:
+        CCTV_DB = pymysql.connect( user='root', passwd='313631', host='175.208.63.163', db='cctv_sw', charset='utf8')
+        cursor = CCTV_DB.cursor(pymysql.cursors.DictCursor)
+        sql = "SELECT * FROM a_sector;"
+        cursor.execute(sql)
+        A_Sector_Data = pd.DataFrame(cursor.fetchall())
+
+        sql1 = "SELECT * FROM critical_section;"
+        cursor.execute(sql1)
+        Critical_Sector = pd.DataFrame(cursor.fetchall())
 
     # while video is running
     while True:
@@ -220,21 +280,42 @@ def main(_argv):
         tracker.update(detections)
         
         # update tracks
-        cnt = 0
         for track in tracker.tracks:
             if not track.is_confirmed() or track.time_since_update > 1:
                 continue 
             bbox = track.to_tlbr()
             class_name = track.get_class()
             
-            # bbox로 color 추출 하기!!!
+            box_image = frame[int(bbox[1]) : int(bbox[3])+1, int(bbox[0]) : int(bbox[2]) +1, :]
 
-            if FLAGS.area == 1:
+            bounding_box_height = int(bbox[3]) - int(bbox[1])
+
+            line = int(bounding_box_height//3)
+            line2 = line * 2
+
+            #print('@@@@@@image size:', frame.shape[0], 'top:', int(bbox[1]), 'bottom:', int(bbox[3]))
+            #print('@@@@@@bounding_box_height:', bounding_box_height)
+            #print('@@@@@line:', line, 'line2:', line2)
+            # 이미지 3등분 하기
+            middle_img = box_image[line:line2,:, :].copy()
+            bottom_img = box_image[line2:,:, :].copy()
+
+            #print('@@@@@@middle_img shape:',middle_img.shape, 'bottom_img shape:', bottom_img.shape)
+
+            # bbox로 color 추출 하기!!!
+            middle_color = image_color_cluster(middle_img, k=2)
+            bottom_color = image_color_cluster(bottom_img, k=2)
+            middle = (type(middle_color) == np.ndarray)
+            bottom = (type(bottom_color) == np.ndarray)
+            print('@@@@@middle_color:', middle_color, 'bottom_color:', bottom_color)
+            print(middle, bottom)
+
+            if FLAGS.area == 1 or FLAGS.area == 2 and middle and bottom:
                 for i in A_Sector_Data.iterrows():
                     i = list(i)[1]
                     personId = i[0]
                     i = i[1:]
-                    if (abs(i[0] - top[0]) < 10) and (abs(i[1] - top[1]) < 10) and (abs(i[2] - top[2]) < 10) and (abs(i[3] - bottom[0]) < 10) and (abs(i[4] - bottom[1]) < 10) and (abs(i[5] - bottom[2]) < 10):
+                    if (abs(i[0] - middle_color[0]) < 10) and (abs(i[1] - middle_color[1]) < 10) and (abs(i[2] - middle_color[2]) < 10) and (abs(i[3] - bottom_color[0]) < 10) and (abs(i[4] - bottom_color[1]) < 10) and (abs(i[5] - bottom_color[2]) < 10):
                         track.track_id = personId
 
 
@@ -245,12 +326,14 @@ def main(_argv):
             cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
             cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
+            person_number = str(track.track_id)
+            print('person_number:', person_number)
+            print('person_number type:', type(person_number))
 
-            user_data[str(track.track_id)] = [0, 1, 2, 3, 4, 5]
+            if middle and bottom:
+                user_data[person_number] = [middle_color[0], middle_color[1], middle_color[2], bottom_color[0], bottom_color[1], bottom_color[2]]
 
-            # if new_data['person_id'] not in A_Sector_Data['person_id']:
-            #     DB_data_list.loc[cnt] = new_data
-            #     cnt +=1
+            print('user_data1:', user_data)
 
         # if enable info flag then print details about each track
             if FLAGS.info:
@@ -272,8 +355,25 @@ def main(_argv):
         if cv2.waitKey(1) & 0xFF == ord('q'): break
     cv2.destroyAllWindows()
 
+    print('user_data2:', user_data)
+
     DB_data_list = pd.DataFrame.from_dict(user_data, orient='index', columns=['top_R', 'top_G', 'top_B', 'bottom_R', 'bottom_G', 'bottom_B'])
     DB_data_list = DB_data_list.reset_index().rename(columns={"index": "person_id"})
+    
+    print('DB_data_list:', DB_data_list)
+
+    if FLAGS.area == 2:
+        critical_person_id = Critical_Sector['person_id']
+
+    # person_id 를 for문을 돌려서 critical_person_id에 있는지 봐야하는데,,
+    if FLAGS.area == 2:
+        idx_remove_list = []
+        B_Sector_pid_list = DB_data_list[['person_id']]
+        for idx, value in B_Sector_pid_list.iterrows():
+            if value not in critical_person_id:
+                idx_remove_list.append(idx)
+
+        DB_data_list = DB_data_list.drop(index=idx_remove_list, axis=0)
 
     if FLAGS.area == 0:
         table_name = 'a_sector'
@@ -282,11 +382,12 @@ def main(_argv):
     elif FLAGS.area == 2:
         table_name = 'b_sector'
 
-    engine = create_engine("mysql+pymysql://root:"+"root"+"@175.208.63.163/cctv_sw", encoding='utf-8')
+
+    #DB_data_list.to_csv(r'C:\Users\parks\OneDrive\CCTV_Control_SW\yolov4-deepsort\outputs\test.csv')
+
+    engine = create_engine("mysql+pymysql://root:"+"313631"+"@175.208.63.163/cctv_sw", encoding='utf-8')
     conn = engine.connect()
-    if len(DB_data_list) != 0:
-        # select로 person_id를 비교 후 DB에 값 input
-        DB_data_list.to_sql(name=table_name, con=engine, if_exists='replace', index=False)
+    DB_data_list.to_sql(name=table_name, con=engine, if_exists='append', index=False)
 
 
 
