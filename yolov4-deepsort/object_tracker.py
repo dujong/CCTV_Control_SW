@@ -79,7 +79,7 @@ def plot_colors(hist, centroids):
 
 
 #ln[3]
-def image_color_cluster(img_array, k = 2):
+def image_color_cluster(img_array, k=2):
     try:
         image = img_array.copy()
         image = image.reshape((image.shape[0] * image.shape[1], 3))
@@ -90,7 +90,7 @@ def image_color_cluster(img_array, k = 2):
         hist = centroid_histogram(clt)
         _, centroids = plot_colors(hist, clt.cluster_centers_)
 
-        return centroids[1]
+        return centroids[0]
     except ValueError:
         return 0.
 
@@ -122,7 +122,7 @@ def main(_argv):
         interpreter.allocate_tensors()
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
-        print(input_details)
+        print(input_details)    
         print(output_details)
     # otherwise load standard tensorflow saved model
     else:
@@ -165,7 +165,7 @@ def main(_argv):
         cursor.execute(sql)
         A_Sector_Data = pd.DataFrame(cursor.fetchall())
 
-        sql1 = "SELECT * FROM critical_section;"
+        sql1 = "SELECT * FROM critical_sector;"
         cursor.execute(sql1)
         Critical_Sector = pd.DataFrame(cursor.fetchall())
 
@@ -293,45 +293,54 @@ def main(_argv):
             line = int(bounding_box_height//3)
             line2 = line * 2
 
-            #print('@@@@@@image size:', frame.shape[0], 'top:', int(bbox[1]), 'bottom:', int(bbox[3]))
-            #print('@@@@@@bounding_box_height:', bounding_box_height)
-            #print('@@@@@line:', line, 'line2:', line2)
             # 이미지 3등분 하기
             middle_img = box_image[line:line2,:, :].copy()
             bottom_img = box_image[line2:,:, :].copy()
 
-            #print('@@@@@@middle_img shape:',middle_img.shape, 'bottom_img shape:', bottom_img.shape)
-
             # bbox로 color 추출 하기!!!
-            middle_color = image_color_cluster(middle_img, k=2)
-            bottom_color = image_color_cluster(bottom_img, k=2)
+            middle_color = image_color_cluster(middle_img, k=1)
+            bottom_color = image_color_cluster(bottom_img, k=1)
             middle = (type(middle_color) == np.ndarray)
             bottom = (type(bottom_color) == np.ndarray)
-            print('@@@@@middle_color:', middle_color, 'bottom_color:', bottom_color)
-            print(middle, bottom)
+            
+            print("middle color :", middle_color)
+            print("bottom color :", bottom_color)
+
+            person_number = str(track.track_id)
+            find_user = True
 
             if FLAGS.area == 1 or FLAGS.area == 2 and middle and bottom:
                 for i in A_Sector_Data.iterrows():
                     i = list(i)[1]
                     personId = i[0]
                     i = i[1:]
-                    if (abs(i[0] - middle_color[0]) < 10) and (abs(i[1] - middle_color[1]) < 10) and (abs(i[2] - middle_color[2]) < 10) and (abs(i[3] - bottom_color[0]) < 10) and (abs(i[4] - bottom_color[1]) < 10) and (abs(i[5] - bottom_color[2]) < 10):
-                        track.track_id = personId
 
+                    if (abs(i[0] - middle_color[0]) < 20) and (abs(i[1] - middle_color[1]) < 20) and (abs(i[2] - middle_color[2]) < 20) and (abs(i[3] - bottom_color[0]) < 20) and (abs(i[4] - bottom_color[1]) < 20) and (abs(i[5] - bottom_color[2]) < 20):
+                        person_number = personId
+                        find_user = False
+                
+                if find_user and person_number in A_Sector_Data['person_id'].unique():
+                    print('person_number가 바꼇다@@@@@@@@@@@@@@@')
+                    person_number = str(int(person_number) + 100)
 
         # draw bbox on screen
-            color = colors[int(track.track_id) % len(colors)]
-            color = [i * 255 for i in color]
-            cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
-            cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
-            cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
+                color = colors[int(person_number) % len(colors)]
+                color = [i * 255 for i in color]
+                cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
+                cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
+                cv2.putText(frame, class_name + "-" + person_number,(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
-            person_number = str(track.track_id)
-            print('person_number:', person_number)
-            print('person_number type:', type(person_number))
+            else:
+                color = colors[int(track.track_id) % len(colors)]
+                color = [i * 255 for i in color]
+                cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
+                cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
+                cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)
 
             if middle and bottom:
                 user_data[person_number] = [middle_color[0], middle_color[1], middle_color[2], bottom_color[0], bottom_color[1], bottom_color[2]]
+
+            print('person_number : ', person_number)
 
             print('user_data1:', user_data)
 
@@ -355,35 +364,39 @@ def main(_argv):
         if cv2.waitKey(1) & 0xFF == ord('q'): break
     cv2.destroyAllWindows()
 
-    print('user_data2:', user_data)
+    #print('user_data2:', user_data)
 
     DB_data_list = pd.DataFrame.from_dict(user_data, orient='index', columns=['top_R', 'top_G', 'top_B', 'bottom_R', 'bottom_G', 'bottom_B'])
     DB_data_list = DB_data_list.reset_index().rename(columns={"index": "person_id"})
     
-    print('DB_data_list:', DB_data_list)
+    #print('DB_data_list:', DB_data_list)
 
     if FLAGS.area == 2:
-        critical_person_id = Critical_Sector['person_id']
+        critical_person_id = Critical_Sector['person_id'].values.tolist()
+
+    print('@@@@@@@@@@@@@@@@@@@@@@@@@ DB1:', DB_data_list)
 
     # person_id 를 for문을 돌려서 critical_person_id에 있는지 봐야하는데,,
     if FLAGS.area == 2:
         idx_remove_list = []
         B_Sector_pid_list = DB_data_list[['person_id']]
         for idx, value in B_Sector_pid_list.iterrows():
-            if value not in critical_person_id:
+            if value.values not in critical_person_id:
                 idx_remove_list.append(idx)
 
         DB_data_list = DB_data_list.drop(index=idx_remove_list, axis=0)
 
+    #print('@@@@@@@@@@@@@@@@@@@@@@@@@ DB2:', DB_data_list)
     if FLAGS.area == 0:
         table_name = 'a_sector'
     elif FLAGS.area == 1:
-        table_name = 'critical_section'
+        table_name = 'critical_sector'
     elif FLAGS.area == 2:
         table_name = 'b_sector'
+        print('A Sector ----임계지역을 지나서>>>> B Sector:', DB_data_list['person_id'])
 
 
-    #DB_data_list.to_csv(r'C:\Users\parks\OneDrive\CCTV_Control_SW\yolov4-deepsort\outputs\test.csv')
+    # DB_data_list.to_csv(r'C:\Users\parks\OneDrive\CCTV_Control_SW\yolov4-deepsort\outputs\test.csv')
 
     engine = create_engine("mysql+pymysql://root:"+"313631"+"@175.208.63.163/cctv_sw", encoding='utf-8')
     conn = engine.connect()
