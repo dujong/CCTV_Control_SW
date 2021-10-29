@@ -1,4 +1,3 @@
-from operator import index
 import os
 # comment out below line to enable tensorflow logging outputs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -302,9 +301,6 @@ def main(_argv):
             bottom_color = image_color_cluster(bottom_img, k=1)
             middle = (type(middle_color) == np.ndarray)
             bottom = (type(bottom_color) == np.ndarray)
-            
-            print("middle color :", middle_color)
-            print("bottom color :", bottom_color)
 
             person_number = str(track.track_id)
             find_user = True
@@ -320,8 +316,7 @@ def main(_argv):
                         find_user = False
                 
                 if find_user and person_number in A_Sector_Data['person_id'].unique():
-                    print('person_number가 바꼇다@@@@@@@@@@@@@@@')
-                    person_number = str(int(person_number) + 100)
+                    person_number = str(int(person_number) + 10)
 
         # draw bbox on screen
                 color = colors[int(person_number) % len(colors)]
@@ -340,9 +335,7 @@ def main(_argv):
             if middle and bottom:
                 user_data[person_number] = [middle_color[0], middle_color[1], middle_color[2], bottom_color[0], bottom_color[1], bottom_color[2]]
 
-            print('person_number : ', person_number)
-
-            print('user_data1:', user_data)
+ 
 
         # if enable info flag then print details about each track
             if FLAGS.info:
@@ -364,17 +357,15 @@ def main(_argv):
         if cv2.waitKey(1) & 0xFF == ord('q'): break
     cv2.destroyAllWindows()
 
-    #print('user_data2:', user_data)
 
     DB_data_list = pd.DataFrame.from_dict(user_data, orient='index', columns=['top_R', 'top_G', 'top_B', 'bottom_R', 'bottom_G', 'bottom_B'])
     DB_data_list = DB_data_list.reset_index().rename(columns={"index": "person_id"})
     
-    #print('DB_data_list:', DB_data_list)
 
     if FLAGS.area == 2:
         critical_person_id = Critical_Sector['person_id'].values.tolist()
 
-    print('@@@@@@@@@@@@@@@@@@@@@@@@@ DB1:', DB_data_list)
+    
 
     # person_id 를 for문을 돌려서 critical_person_id에 있는지 봐야하는데,,
     if FLAGS.area == 2:
@@ -386,7 +377,6 @@ def main(_argv):
 
         DB_data_list = DB_data_list.drop(index=idx_remove_list, axis=0)
 
-    #print('@@@@@@@@@@@@@@@@@@@@@@@@@ DB2:', DB_data_list)
     if FLAGS.area == 0:
         table_name = 'a_sector'
     elif FLAGS.area == 1:
