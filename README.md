@@ -6,13 +6,13 @@
 + 특수 CCTV는 객체가 특정 위치에 있는지만 확인하고 추적 객체가 다른 일반 CCTV 구역으로 이동할 때까지만 위치를 추적  <br><br>
 
 ## A Sector
-![1](https://user-images.githubusercontent.com/55770741/138043988-a7b60827-b282-44cb-92fc-61f1361c2dd3.JPG)<br>
+![A](https://user-images.githubusercontent.com/55770741/139579449-e3874d92-c72e-4c9b-a115-0a5b37233885.PNG)<br>
 
 ## Critical Sector
-![2](https://user-images.githubusercontent.com/55770741/138043997-555ff719-4da0-4f40-aaa6-535bee6daf15.JPG)<br>
+![cz-2](https://user-images.githubusercontent.com/55770741/139579415-7e6c0d68-7907-48da-9827-948caaadef4e.PNG)<br>
 
 ## B Sector
-![3](https://user-images.githubusercontent.com/55770741/138044009-bb01efd6-a236-4240-a640-37ee2e48e5e2.JPG)<br><br>  
+![B](https://user-images.githubusercontent.com/55770741/139579370-e3f42b34-a548-4697-b179-3d5667400485.PNG)<br><br>  
 
 # Review
 1. Tracker라는 Library를 처음 활용해봤는데, 이미 구현되어 있는 Library를 목적에 맞게 활용하기 위해서 내부 소스코드를 이해 및 수정하면서, 내부 구현을 손보는 일에 대한 두려움이 사라지고, 내가 원하는 대로 바꾸어 사용하니 재미를 느꼇다.
