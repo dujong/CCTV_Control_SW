@@ -19,6 +19,19 @@
 2. 사람에 대한 특징 상의, 하의를 Color 추출할 때 Detector한 Bounding Box를 활용해서 추출하였는데, 배경색이 같이 추출되어져 Issue가 있었다. 이러한 문제를 해결하기 위해서 Segmentation 기술을 사용하여 배경을 제외한 상의와 하의만을 인식하여 Color 추출을 하면 더욱 성능이 향상될 것이라고 생각한다.
 3. 현재 사용자의 특징을 추출하는 요소들이 상의, 하의에 국한되어 있지만, 추후에 사용자의 얼굴을 고려하여 판별해주는 CCTV Control SW를 개발하고 싶다는 생각이 들었다
 
+# Team member
+### 박종두(팀장)
+- Detection & Tracking
+- 동일 object 판별
+- DB 연동  
+### 박성민(팀원)
+- Detection & Tracking
+- Bounding Box 색상 추출  
+
+### 임준혁(팀원)
+- Detection & Tracking
+- 이미지 해상도 보정  
+
 # Requirement  
 + Python
 + Opencv
